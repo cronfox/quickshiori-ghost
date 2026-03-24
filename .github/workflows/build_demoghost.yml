@@ -67,7 +67,8 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         run: |
           cd ghost/master && npm install && npm run build
-          cp ghost/master/dist/index.js ./build/ghost/master/
+          cd ../../
+          cp ./ghost/master/dist/index.js ./build/ghost/master/
       - name: make Nar Package
         if: steps.check.outputs.skip == 'false'
         run: |
