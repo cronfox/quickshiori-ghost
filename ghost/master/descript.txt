@@ -1,0 +1,12 @@
+﻿charset,UTF-8
+
+craftman,Cronfox
+craftmanw,Cronfox
+craftmanurl,cronfox.2434.me
+
+name,QuickShioriDemo
+type,ghost
+
+sakura.name,Blue
+
+shiori,quickshiori.dll

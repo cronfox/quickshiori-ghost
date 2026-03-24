@@ -1,0 +1,83 @@
+name: Update QuickShiori
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force update even if already on latest version'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest QuickShiori release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_JSON=$(gh api /repos/cronfox/quickshiori/releases/latest)
+          TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+          ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | startswith("quickshiori-windows-i386") and endswith(".zip"))] | first | .browser_download_url')
+          ASSET_NAME=$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | startswith("quickshiori-windows-i386") and endswith(".zip"))] | first | .name')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "asset_url=$ASSET_URL" >> "$GITHUB_OUTPUT"
+          echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Check current version
+        id: check
+        run: |
+          CURRENT=$(cat .github/QUICKSHIORI_VERSION 2>/dev/null || echo "none")
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          LATEST="${{ steps.release.outputs.tag }}"
+          if [ "$LATEST" = "$CURRENT" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on latest version $CURRENT, skipping."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Updating from $CURRENT to $LATEST."
+          fi
+
+      - name: Download release zip
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          curl -fsSL -L "${{ steps.release.outputs.asset_url }}" -o /tmp/quickshiori.zip
+      - name: Extract DLL files
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          unzip -o /tmp/quickshiori.zip -d /tmp/quickshiori-extract
+          mkdir -p ./build/ghost/master
+          cp -r /tmp/quickshiori-extract/* ./build/ghost/master
+      - name: Copy Shell & Ghost Description Files
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          cp ./ghost/master/descript.txt ./build/ghost/master/
+          cp -r ./shell/ ./build/
+      - name: npm run build
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          cd ghost/master && npm install && npm run build
+          cp ghost/master/dist/index.js ./build/ghost/master/
+      - name: make Nar Package
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          zip -r "quickshiori-demo-ghost-${{github.sha}}.nar" ./build/*
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: quickshiori-demo-ghost-${{github.sha}}
+          if-no-files-found: error
+          path: |
+            quickshiori-demo-ghost-${{github.sha}}.nar
+
+    
