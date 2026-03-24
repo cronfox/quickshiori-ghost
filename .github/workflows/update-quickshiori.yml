@@ -1,0 +1,85 @@
+name: Update QuickShiori
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force update even if already on latest version'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest QuickShiori release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_JSON=$(gh api /repos/cronfox/quickshiori/releases/latest)
+          TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+          ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | startswith("quickshiori-windows-i386") and endswith(".zip"))] | first | .browser_download_url')
+          ASSET_NAME=$(echo "$RELEASE_JSON" | jq -r '[.assets[] | select(.name | startswith("quickshiori-windows-i386") and endswith(".zip"))] | first | .name')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "asset_url=$ASSET_URL" >> "$GITHUB_OUTPUT"
+          echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Check current version
+        id: check
+        run: |
+          CURRENT=$(cat .github/QUICKSHIORI_VERSION 2>/dev/null || echo "none")
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          LATEST="${{ steps.release.outputs.tag }}"
+          if [ "$LATEST" = "$CURRENT" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on latest version $CURRENT, skipping."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Updating from $CURRENT to $LATEST."
+          fi
+
+      - name: Download release zip
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          curl -fsSL -L "${{ steps.release.outputs.asset_url }}" -o /tmp/quickshiori.zip
+
+      - name: Extract DLL files
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          unzip -o /tmp/quickshiori.zip -d /tmp/quickshiori-extract
+          find /tmp/quickshiori-extract -name "*.dll" -exec cp {} . \;
+          find /tmp/quickshiori-extract -name "*.pdb" -exec cp {} . \;
+          find /tmp/quickshiori-extract -name "qjs.exe" -exec cp {} . \;
+
+      - name: Update version tracking file
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          echo "${{ steps.release.outputs.tag }}" > .github/QUICKSHIORI_VERSION
+
+      - name: Create Pull Request
+        if: steps.check.outputs.skip == 'false'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update QuickShiori to ${{ steps.release.outputs.tag }}"
+          title: "Update QuickShiori to ${{ steps.release.outputs.tag }}"
+          body: |
+            Automated update of QuickShiori runtime DLLs to version **${{ steps.release.outputs.tag }}**.
+
+            Source release: https://github.com/cronfox/quickshiori/releases/tag/${{ steps.release.outputs.tag }}
+
+            Asset: `${{ steps.release.outputs.asset_name }}`
+          branch: "update/quickshiori-${{ steps.release.outputs.tag }}"
+          delete-branch: true
+          labels: automated,dependencies
