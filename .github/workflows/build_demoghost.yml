@@ -69,16 +69,12 @@ jobs:
           cd ghost/master && npm install && npm run build
           cd ../../
           cp ./ghost/master/dist/index.js ./build/ghost/master/
-      - name: make Nar Package
-        if: steps.check.outputs.skip == 'false'
-        run: |
-          zip -r "quickshiori-demo-ghost-${{github.sha}}.nar" ./build/*
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: quickshiori-demo-ghost-${{github.sha}}
+          name: quickshiori-demo-ghost-${{github.sha}}.nar
           if-no-files-found: error
           path: |
-            quickshiori-demo-ghost-${{github.sha}}.nar
+            ./build/*
 
     
